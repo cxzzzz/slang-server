@@ -10,55 +10,69 @@ jobs:
     container: 
       image: centos:7
     steps:
-    - name: 1. 修复基础源并安装 Git
+    - name: 1. 初始化环境并拉取代码
       run: |
-        # 1. 先修复基础源，否则无法安装任何东西
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+        # 1. 强制删除系统自带的所有 repo 文件，防止干扰
+        rm -f /etc/yum.repos.d/*.repo
         
-        # 2. 安装 git
+        # 2. 手动写入一个绝对正确的、指向 Vault 的源文件
+        # 注意：这里我们直接把 sclo 源也写进去了，包含所有常用仓库
+        cat > /etc/yum.repos.d/CentOS-Vault.repo << 'EOF'
+        [base]
+        name=CentOS-7 - Base
+        baseurl=http://vault.centos.org/7.9.2009/os/$basearch/
+        gpgcheck=0
+        
+        [updates]
+        name=CentOS-7 - Updates
+        baseurl=http://vault.centos.org/7.9.2009/updates/$basearch/
+        gpgcheck=0
+        
+        [extras]
+        name=CentOS-7 - Extras
+        baseurl=http://vault.centos.org/7.9.2009/extras/$basearch/
+        gpgcheck=0
+        
+        [centos-sclo-sclo]
+        name=CentOS-7 - SCLo sclo
+        baseurl=http://vault.centos.org/7.9.2009/sclo/$basearch/sclo/
+        gpgcheck=0
+        
+        [centos-sclo-rh]
+        name=CentOS-7 - SCLo rh
+        baseurl=http://vault.centos.org/7.9.2009/sclo/$basearch/rh/
+        gpgcheck=0
+        EOF
+        
+        # 3. 安装 git 并拉代码
         yum install -y git
-        
-        # 3. 拉取代码 (绕过 checkout 插件的 glibc 问题)
         git init
         git remote add origin https://github.com/${{ github.repository }}.git
         git fetch origin ${{ github.sha }}
         git checkout ${{ github.sha }}
 
-    - name: 2. 安装 SCL 并彻底修复所有源
+    - name: 2. 安装编译工具 (GCC 11 & CMake)
       run: |
-        # 1. 安装 SCL 和 EPEL 仓库配置包
-        yum install -y centos-release-scl epel-release
+        # 1. 安装 EPEL (它独立于 CentOS 官方源，需要单独装)
+        yum install -y epel-release
         
-        # 2. 【关键修复】再次处理所有仓库文件
-        # 先删除所有 mirrorlist 行 (SCL 的 mirrorlist 即使注释掉也可能有干扰)
-        sed -i '/^mirrorlist=/d' /etc/yum.repos.d/CentOS-*
-        
-        # 再取消 baseurl 的注释，并精准替换域名
-        # 这一步会把 mirror.centos.org 替换为 vault.centos.org
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-        
-        # 额外保险：如果有些文件 baseurl 没有 # 注释符，直接替换域名
-        sed -i 's|baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
-
-    - name: 3. 安装编译工具 (GCC 11 & CMake)
-      run: |
-        # 此时所有源都指向 vault.centos.org，安装将顺利进行
+        # 2. 此时安装 SCL 包不会产生破坏性影响了，但为了干净，我们其实不需要再装 centos-release-scl
+        # 因为上面我们已经手动写好了 sclo 的源配置。
+        # 直接安装 GCC 11 即可：
         yum install -y devtoolset-11-gcc-c++ cmake3 make
 
-    - name: 4. 开始编译
+    - name: 3. 开始编译
       run: |
         source /opt/rh/devtoolset-11/enable
         mkdir build
         cd build
         
-        # 静态链接以保证兼容性
+        # 静态链接
         cmake3 .. -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
         make -j$(nproc)
 
-    - name: 5. 上传构建产物
+    - name: 4. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: slang-server-centos7
-        # 上传整个目录，防止找不到文件
         path: build/
