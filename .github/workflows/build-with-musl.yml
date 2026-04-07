@@ -9,18 +9,16 @@ jobs:
   build-musl:
     runs-on: ubuntu-latest
     container: 
-      image: alpine:3.19  # 使用 Alpine Linux (musl 环境)
+      image: alpine:3.19
     steps:
     - name: 1. 安装编译工具和依赖
       run: |
-        # Alpine 使用 apk 包管理器
         apk add --no-cache \
           git \
           g++ \
           make \
           cmake \
-          python3 \
-          samurai  # Alpine 推荐使用 ninja 构建以提高速度
+          python3
 
     - name: 2. 拉取代码
       run: |
@@ -37,8 +35,6 @@ jobs:
         mkdir build
         cd build
         
-        # 注意：Alpine 环境下静态链接通常只需链接 -static
-        # CMake 会自动检测到这是 musl 环境
         cmake .. \
           -DCMAKE_CXX_STANDARD=17 \
           -DCMAKE_EXE_LINKER_FLAGS="-static" \
@@ -46,14 +42,9 @@ jobs:
           
         make -j$(nproc)
 
-    - name: 4. 验证依赖
-      run: |
-        echo "检查文件类型和依赖..."
-        file ./build/bin/slang  # 请根据实际生成的可执行文件名调整路径
-        ldd ./build/bin/slang || echo "静态链接成功，无动态依赖！(ldd 报错属正常现象)"
-
-    - name: 5. 上传构建产物
+    - name: 4. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: slang-server-musl-static
-        path: build/ # 请根据实际情况调整上传路径
+        # 上传整个 build 目录，你可以下载后自行查找二进制文件
+        path: build/
