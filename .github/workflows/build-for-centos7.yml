@@ -1,0 +1,50 @@
+name: Build for CentOS 7
+
+# 触发条件：当你点击 "Run workflow" 按钮时，或者推送代码时
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-centos7:
+    runs-on: ubuntu-latest  # 运行脚本的基础环境
+    container: 
+      image: centos:7       # 我们在一个纯净的 CentOS 7 容器里进行编译
+    steps:
+    - name: 1. 获取代码
+      uses: actions/checkout@v4
+
+    - name: 2. 安装编译工具 (GCC 11 & CMake)
+      run: |
+        # 安装 CentOS SCL 仓库
+        yum install -y centos-release-scl epel-release
+        # 安装 GCC 11 和 CMake 以及构建工具
+        # 注意：devtoolset-11 刚好满足你的 GCC 11 要求
+        yum install -y devtoolset-11-gcc-c++ cmake3 git make
+        
+    - name: 3. 开始编译
+      run: |
+        # 启用 GCC 11 环境
+        source /opt/rh/devtoolset-11/enable
+        
+        # 创建编译目录
+        mkdir build
+        cd build
+        
+        # 运行 CMake (CentOS 7 的 cmake 命令叫 cmake3)
+        # 关键参数：静态链接 C++ 标准库，这样生成的程序在 CentOS 7 上才不会缺库
+        cmake3 .. -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+        
+        # 开始编译 (利用服务器多核优势)
+        make -j$(nproc)
+
+    - name: 4. 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: slang-server-centos7-binary
+        # 这里的路径要特别注意！
+        # 你需要知道编译出来的可执行文件叫什么名字，以及在哪个文件夹。
+        # 通常是 build/ 目录下的某个文件。这里假设叫 slang-server
+        # 如果不确定，可以先填 build/ 把整个文件夹下载下来看。
+        path: build/slang-server
