@@ -1,6 +1,5 @@
 name: Build for CentOS 7
 
-# 触发条件：当你点击 "Run workflow" 按钮时，或者推送代码时
 on:
   workflow_dispatch:
   push:
@@ -8,43 +7,49 @@ on:
 
 jobs:
   build-centos7:
-    runs-on: ubuntu-latest  # 运行脚本的基础环境
+    runs-on: ubuntu-latest
     container: 
-      image: centos:7       # 我们在一个纯净的 CentOS 7 容器里进行编译
+      image: centos:7
     steps:
-    - name: 1. 获取代码
-      uses: actions/checkout@v4
+    # 不再使用 actions/checkout@v4，改用原生 git，避免 glibc 报错
+    - name: 1. 安装 Git 并拉取代码
+      run: |
+        # 先装 git，centos 7 自带的 git 可能太老，但对拉代码够用
+        yum install -y git
+        
+        # 拉取当前仓库代码
+        # GITHUB_SHA 是 GitHub 提供的环境变量，代表最新的提交版本
+        git init
+        git remote add origin https://github.com/${{ github.repository }}.git
+        git fetch origin ${{ github.sha }}
+        git checkout ${{ github.sha }}
+        
+        # 如果项目包含子模块，取消下面这行的注释
+        # git submodule update --init --recursive
 
     - name: 2. 安装编译工具 (GCC 11 & CMake)
       run: |
-        # 安装 CentOS SCL 仓库
         yum install -y centos-release-scl epel-release
-        # 安装 GCC 11 和 CMake 以及构建工具
-        # 注意：devtoolset-11 刚好满足你的 GCC 11 要求
-        yum install -y devtoolset-11-gcc-c++ cmake3 git make
+        yum install -y devtoolset-11-gcc-c++ cmake3 make
         
     - name: 3. 开始编译
       run: |
-        # 启用 GCC 11 环境
         source /opt/rh/devtoolset-11/enable
-        
-        # 创建编译目录
         mkdir build
         cd build
         
-        # 运行 CMake (CentOS 7 的 cmake 命令叫 cmake3)
-        # 关键参数：静态链接 C++ 标准库，这样生成的程序在 CentOS 7 上才不会缺库
+        # 这一步特别重要：确认 CMake 能找到源码
+        # 如果上一部 git 没拉下来代码，这里会报错 CMake Error: The source directory does not appear to contain CMakeLists.txt
         cmake3 .. -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
-        
-        # 开始编译 (利用服务器多核优势)
         make -j$(nproc)
 
-    - name: 4. 上传构建产物
+    - name: 4. 查看编译结果 (调试用)
+      run: |
+        ls -lh build/
+        
+    - name: 5. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: slang-server-centos7-binary
-        # 这里的路径要特别注意！
-        # 你需要知道编译出来的可执行文件叫什么名字，以及在哪个文件夹。
-        # 通常是 build/ 目录下的某个文件。这里假设叫 slang-server
-        # 如果不确定，可以先填 build/ 把整个文件夹下载下来看。
-        path: build/slang-server
+        # 为了保险，这里依然写 build/ 目录，这样即使文件名不对，你也能下载整个目录
+        path: build/
