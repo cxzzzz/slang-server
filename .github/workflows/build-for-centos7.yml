@@ -1,4 +1,4 @@
-name: Build for CentOS 7 (Fixed)
+name: Build for CentOS 7
 
 on:
   workflow_dispatch:
@@ -11,15 +11,13 @@ jobs:
     container: 
       image: centos:7
     steps:
-    - name: 1. 修复软件源 (切换到 Vault)
+    - name: 1. 准备基础环境
       run: |
-        # 因为 CentOS 7 官方源已关闭，必须手动修改源地址
+        # 第一步：先修复基础系统的源，否则连 yum 都没法用
         sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
         sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
         
-    - name: 2. 安装 Git 并拉取代码
-      run: |
-        # 现在 yum 就能正常工作了
+        # 安装 git (用于拉代码)
         yum install -y git
         
         # 拉取代码
@@ -28,15 +26,20 @@ jobs:
         git fetch origin ${{ github.sha }}
         git checkout ${{ github.sha }}
 
-    - name: 3. 安装编译工具 (GCC 11 & CMake)
+    - name: 2. 安装 SCL 仓库并修复源
       run: |
+        # 安装包含 GCC 11 的 SCL 仓库配置包
         yum install -y centos-release-scl epel-release
         
-        # 这里也需要修复 SCL 的源地址
-        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-SCLo-*
-        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-SCLo-*
-        
-        # 安装 GCC 11 和工具
+        # 关键步骤：SCL 包安装后会产生新的 .repo 文件，
+        # 这些新文件里的地址也是失效的，必须再次批量修复！
+        # 这条命令会修复所有 CentOS 开头的 repo 文件，包括刚装好的 SCL
+        sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+        sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+
+    - name: 3. 安装编译工具 (GCC 11 & CMake)
+      run: |
+        # 现在安装 GCC 11 就不会报错了
         yum install -y devtoolset-11-gcc-c++ cmake3 make
 
     - name: 4. 开始编译
@@ -45,16 +48,12 @@ jobs:
         mkdir build
         cd build
         
-        # 关键：静态链接，保证在 CentOS 7 上能跑
+        # 静态链接以保证兼容性
         cmake3 .. -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
         make -j$(nproc)
 
-    - name: 5. 查看编译结果
-      run: ls -lh build/
-
-    - name: 6. 上传构建产物
+    - name: 5. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
-        name: slang-binary-centos7
-        # 上传整个 build 目录，避免找不到文件
+        name: slang-server-centos7
         path: build/
