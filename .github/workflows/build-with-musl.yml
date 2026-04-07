@@ -18,7 +18,8 @@ jobs:
           g++ \
           make \
           cmake \
-          python3
+          python3 \
+          binutils  # 安装 binutils 以使用 strip 命令
 
     - name: 2. 拉取代码
       run: |
@@ -42,9 +43,30 @@ jobs:
           
         make -j$(nproc)
 
-    - name: 4. 上传构建产物
+    - name: 4. 打包发布产物
+      run: |
+        # 1. 定义二进制文件路径
+        BINARY_PATH="build/bin/slang-server"
+        
+        # 2. 清理调试符号 (大幅减小文件体积，静态链接文件通常很大)
+        strip $BINARY_PATH
+        
+        # 3. 创建临时打包目录
+        mkdir -p packaging
+        
+        # 4. 拷贝二进制文件到打包目录
+        cp $BINARY_PATH packaging/slang-server
+        chmod +x packaging/slang-server
+        
+        # 5. 打包成 tar.gz
+        cd packaging
+        tar -czf ../slang-server-linux-x64-musl.tar.gz slang-server
+        
+        # 6. 简单打印一下信息确认
+        echo "打包完成: $(ls -lh ../slang-server-linux-x64-musl.tar.gz)"
+
+    - name: 5. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: slang-server-musl-static
-        # 上传整个 build 目录，你可以下载后自行查找二进制文件
-        path: build/
+        path: slang-server-linux-x64-musl.tar.gz
