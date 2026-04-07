@@ -1,4 +1,5 @@
 name: Build for CentOS 7
+
 on:
   workflow_dispatch:
   push:
@@ -10,9 +11,10 @@ jobs:
     container: 
       image: centos:7
     steps:
-    - name: 1. 初始化环境并拉取代码
+    # Step 1: 必须先安装 git，否则 checkout v2 无法运行
+    - name: 1. 修复 Yum 源并安装 Git
       run: |
-        # 强制删除系统自带的所有 repo 文件，防止干扰
+        # 强制删除系统自带的所有 repo 文件
         rm -f /etc/yum.repos.d/*.repo
         
         # 手动写入一个绝对正确的、指向 Vault 的源文件
@@ -43,41 +45,42 @@ jobs:
         gpgcheck=0
         EOF
         
-        # 安装 git 并拉代码
+        # 安装 git (必须先装，给下一步 checkout 用)
         yum install -y git
-        git init
-        git remote add origin https://github.com/${{ github.repository }}.git
-        git fetch origin ${{ github.sha }}
-        git checkout ${{ github.sha }}
-
-    - name: 2. 安装编译工具 (GCC 11 & 手动安装新版 CMake)
-      run: |
-        # 安装 EPEL 和基础工具
-        yum install -y epel-release
         
-        # 安装 GCC 11 和 Make
+        # 解决 git 检出时的安全目录问题
+        git config --global --add safe.directory '*'
+
+    # Step 2: 使用 checkout@v2 (兼容 CentOS 7 的 glibc 2.17)
+    - name: 2. 拉取代码 (包含子模块)
+      uses: actions/checkout@v2
+      with:
+        submodules: 'true' # 自动拉取 slang, reflect-cpp 等依赖
+        fetch-depth: 0
+
+    - name: 3. 安装编译工具 (GCC 11 & 手动安装新版 CMake)
+      run: |
+        # 安装 EPEL 和 GCC 11
+        yum install -y epel-release
         yum install -y devtoolset-11-gcc-c++ make
         
-        # --- 【关键修改】手动安装新版 CMake (3.28) ---
-        # CentOS 7 自带的 cmake3 版本只有 3.17，不满足要求
+        # 手动安装新版 CMake (3.28)
         curl -L https://github.com/Kitware/CMake/releases/download/v3.28.0/cmake-3.28.0-linux-x86_64.tar.gz -o cmake.tar.gz
         tar -xzf cmake.tar.gz
-        # 将 cmake 移动到系统路径，并重命名目录以便调用
         mv cmake-3.28.0-linux-x86_64 /opt/cmake
-        # 创建软链接，让系统识别 cmake 命令
         ln -s /opt/cmake/bin/cmake /usr/local/bin/cmake
 
-    - name: 3. 开始编译
+    - name: 4. 开始编译
       run: |
         source /opt/rh/devtoolset-11/enable
         mkdir build
         cd build
         
-        # 此时使用的 cmake 是刚才安装的 3.28 版本
+        # 使用新版 CMake 编译
         cmake .. -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
         make -j$(nproc)
 
-    - name: 4. 上传构建产物
+    - name: 5. 上传构建产物
       uses: actions/upload-artifact@v4
       with:
         name: slang-server-centos7
