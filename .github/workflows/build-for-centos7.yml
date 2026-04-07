@@ -1,4 +1,4 @@
-name: Build for CentOS 7 (Python Fix)
+name: Build for CentOS 7 (Final Fix)
 
 on:
   workflow_dispatch:
@@ -55,17 +55,10 @@ jobs:
 
     - name: 3. 安装编译工具 (GCC 11, CMake 3.28 & Python 3)
       run: |
-        # 安装 EPEL 源
         yum install -y epel-release
-        
-        # 【关键修复】安装 Python 3 和 setuptools
-        # slang 的脚本需要 Python 3.6+ 的语法
         yum install -y python3 python3-setuptools
-        
-        # 安装 GCC 11 和 Make
         yum install -y devtoolset-11-gcc-c++ make
         
-        # 手动安装 CMake 3.28
         curl -L https://github.com/Kitware/CMake/releases/download/v3.28.0/cmake-3.28.0-linux-x86_64.tar.gz -o cmake.tar.gz
         tar -xzf cmake.tar.gz
         mv cmake-3.28.0-linux-x86_64 /opt/cmake
@@ -75,16 +68,17 @@ jobs:
       run: |
         source /opt/rh/devtoolset-11/enable
         
-        # 【关键修复】强制 CMake 使用 Python 3
-        # CentOS 7 默认 python 是 2.7，必须显式指定 Python 3
-        export PYTHON_EXECUTABLE=$(which python3)
+        # 【关键修复】
+        # 1. 强制链接器使用静态库 (-static-libstdc++)，避免加载系统旧版动态库
+        # 2. 显式开启 C++17 (虽然 GCC11 默认开启，但显式写明更稳妥)
         
         mkdir build
         cd build
         
         cmake .. \
-          -DPython3_EXECUTABLE=$PYTHON_EXECUTABLE \
-          -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+          -DCMAKE_CXX_STANDARD=17 \
+          -DCMAKE_CXX_FLAGS="-static-libstdc++ -static-libgcc" \
+          -DPython3_EXECUTABLE=$(which python3)
           
         make -j$(nproc)
 
